@@ -18,6 +18,7 @@ import sharp from 'sharp';
 // Utils
 import { niceLog } from './utils/niceLog';
 import { fileURLToPath } from 'url';
+import { getStringFromObject } from './utils/getStringFromObject';
 
 interface Secrets {
   MULTION_CLIENT_ID: string;
@@ -40,13 +41,14 @@ const __dirname = path.dirname(__filename);
 export class Multion {
   private clientId: string;
   private clientSecret: string;
-  private secretJSONFile = './secrets.json';
+  private secretsFilePath = './secrets.json';
   private verbose?: boolean;
-  private refreshURL = 'https://auth.multion.ai/oauth2/token';
+  private tokenURL = 'https://auth.multion.ai/oauth2/token';
+  private apiURL = `https://api.multion.ai`;
+  private redirectURI = 'http://localhost:8000/callback';
   private token?: Token;
   private tokenFile: any;
-  private defaultTokenFile = 'multion_token.txt';
-  private apiURL?: string;
+  private defaultTokenFileName = 'multion_token.txt';
 
   constructor(params: MultionParams = {}) {
     const { tokenFile } = params;
@@ -57,12 +59,12 @@ export class Multion {
       params.verbose === undefined
         ? process.env.VERBOSE === 'true'
         : params.verbose;
-        
+
     this.verbose = verbose;
     this.tokenFile = path.resolve(
       __dirname,
       '..', // One folder down to the root of the project
-      tokenFile || this.defaultTokenFile,
+      tokenFile || this.defaultTokenFileName,
     );
   }
 
@@ -73,7 +75,7 @@ export class Multion {
    */
   private getSecrets() {
     const secrets: Secrets = JSON.parse(
-      readFileSync(this.secretJSONFile, 'utf8'),
+      readFileSync(this.secretsFilePath, 'utf8'),
     );
 
     if (!secrets) {
@@ -132,8 +134,6 @@ export class Multion {
         return;
       }
 
-      const redirectUri = 'http://localhost:8000/callback';
-
       const oauth = new AuthorizationCode({
         client: {
           id: this.clientId,
@@ -148,7 +148,7 @@ export class Multion {
       });
 
       const authorizationUri = oauth.authorizeURL({
-        redirect_uri: redirectUri,
+        redirect_uri: this.redirectURI,
       });
       const open = (await import('open')).default;
       open(authorizationUri);
@@ -164,7 +164,7 @@ export class Multion {
             const { code } = this.getLoginReqParams(req);
             const tokenParams: AuthorizationTokenConfig = {
               code,
-              redirect_uri: redirectUri,
+              redirect_uri: this.redirectURI,
             };
             const result = await oauth.getToken(tokenParams);
 
@@ -201,13 +201,21 @@ export class Multion {
     let headers = { Authorization: `Bearer ${this.token['access_token']}` };
 
     if (tabId) {
-      url = `https://api.multion.ai/sessions/${tabId}`;
+      url = `${this.apiURL}/sessions/${tabId}`;
     }
 
-    this.log('post', 'running post..');
     let attempts = 0;
 
     while (attempts < 5) {
+      this.log(
+        `post - Running POST Attempt ${attempts + 1}`,
+        `POST URL: ${url}\n\nPOST Data:\n${getStringFromObject(
+          {
+            ...data,
+          },
+          1,
+        )}`,
+      );
       try {
         const response = await axios.post(url, data, { headers });
         this.log(`post - Response Status: ${response.status}`, {
@@ -249,7 +257,7 @@ export class Multion {
     }
 
     const headers = { Authorization: `Bearer ${this.token['access_token']}` };
-    const url = 'https://api.multion.ai/sessions';
+    const url = `${this.apiURL}/sessions`;
 
     const response = await axios.get(url, { headers });
     return response.data.response.data;
@@ -261,23 +269,20 @@ export class Multion {
         throw new Error('You must log in before refreshing the token.');
       }
 
-      const tokenURL = 'https://auth.multion.ai/oauth2/token';
-      const redirectURI = 'http://localhost:8000/callback';
-
       const auth = {
         username: this.clientId,
         password: this.clientSecret,
       };
 
-      niceLog(`refreshToken - current token`, this.token);
+      niceLog(`refreshToken - current token`, this.token); // TODO: Delete this
 
       const data = {
         grant_type: 'refresh_token',
         refresh_token: this.token.refresh_token,
-        redirect_uri: redirectURI,
+        redirect_uri: this.redirectURI,
       };
 
-      const response = await axios.post(tokenURL, data, { auth });
+      const response = await axios.post(this.tokenURL, data, { auth });
       this.token = response.data;
       writeFileSync(this.tokenFile, JSON.stringify(this.token));
     } catch (error) {
@@ -290,12 +295,12 @@ export class Multion {
   };
 
   readonly newSession = async (data: SessionDataParams) => {
-    const url = 'https://api.multion.ai/sessions';
+    const url = `${this.apiURL}/sessions`;
     return await this.post(url, data);
   };
 
   readonly updateSession = async (tabId: string, data: SessionDataParams) => {
-    const url = `https://api.multion.ai/session/${tabId}`;
+    const url = `${this.apiURL}/session/${tabId}`;
     return await this.post(url, data);
   };
 
@@ -321,7 +326,7 @@ export class Multion {
       }
 
       const headers = { Authorization: `Bearer ${this.token['access_token']}` };
-      const url = `https://api.multion.ai/sessions/${tabId}`;
+      const url = `${this.apiURL}/sessions/${tabId}`;
 
       const response = await axios.delete(url, { headers });
 
@@ -400,7 +405,7 @@ export class Multion {
   };
 
   readonly getVideo = async (session_id: string) => {
-    const url = `https://api.multion.ai/sessionVideo/${session_id}`;
+    const url = `${this.apiURL}/sessionVideo/${session_id}`;
     try {
       if (!this.token) {
         throw new Error('You must log in before getting a video.');
