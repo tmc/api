@@ -1,6 +1,11 @@
-sdks/multion-js/node_modules
-sdks/multion-js/dist
-sdks/multion-ts/node_modules
-sdks/multion-py/multion/secrets.json
-sdks/multion-py/dist
 sdks/multion-py/poetry.lock
+# Ignore secrets.json
+**/secrets.json
+# Ignore .env files
+**/.env
+# Ignore dist folders
+**/dist
+# Ignore node_modules folders
+**/node_modules
+# Ignore multion_token.txt file
+**/multion_token.txt

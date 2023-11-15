@@ -49,13 +49,19 @@ export class Multion {
   private apiURL?: string;
 
   constructor(params: MultionParams = {}) {
-    const { verbose, tokenFile } = params;
+    const { tokenFile } = params;
     const secrets = this.getSecrets();
     this.clientId = secrets.MULTION_CLIENT_ID;
     this.clientSecret = secrets.MULTION_CLIENT_SECRET;
+    const verbose =
+      params.verbose === undefined
+        ? process.env.VERBOSE === 'true'
+        : params.verbose;
+        
     this.verbose = verbose;
     this.tokenFile = path.resolve(
       __dirname,
+      '..', // One folder down to the root of the project
       tokenFile || this.defaultTokenFile,
     );
   }

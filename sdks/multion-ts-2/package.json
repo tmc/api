@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc",
     "test": "node --loader ts-node/esm --experimental-specifier-resolution=node src/test.ts",
+    "test:verbose": "VERBOSE=true npm run test",
     "check-types": "tsc --noEmit",
     "lint": "eslint --fix \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\""

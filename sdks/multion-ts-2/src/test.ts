@@ -3,7 +3,7 @@ import { generateHtmlAndOpen } from './utils/generateHtmlAndOpen';
 import { niceLog } from './utils/niceLog';
 
 const main = async () => {
-  const multion = new Multion({ verbose: true });
+  const multion = new Multion();
   await multion.login();
 
   let response = await multion.newSession({
