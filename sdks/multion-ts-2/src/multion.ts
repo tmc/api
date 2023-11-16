@@ -1,5 +1,5 @@
 // Vendors
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
 import path from 'path';
 import {
   existsSync,
@@ -18,7 +18,6 @@ import sharp from 'sharp';
 // Utils
 import { niceLog } from './utils/niceLog';
 import { fileURLToPath } from 'url';
-import { getStringFromObject } from './utils/getStringFromObject';
 
 interface Secrets {
   MULTION_CLIENT_ID: string;
@@ -35,6 +34,14 @@ interface SessionDataParams {
   url: string;
 }
 
+interface SessionSuccesfulResponse {
+  url: string;
+  screenshot: string;
+  message: string;
+  status: string;
+  session_id: string;
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -47,7 +54,7 @@ export class Multion {
   private apiURL = `https://api.multion.ai`;
   private redirectURI = 'http://localhost:8000/callback';
   private token?: Token;
-  private tokenFile: any;
+  private tokenFilePath: string;
   private defaultTokenFileName = 'multion_token.txt';
 
   constructor(params: MultionParams = {}) {
@@ -61,7 +68,7 @@ export class Multion {
         : params.verbose;
 
     this.verbose = verbose;
-    this.tokenFile = path.resolve(
+    this.tokenFilePath = path.resolve(
       __dirname,
       '..', // One folder down to the root of the project
       tokenFile || this.defaultTokenFileName,
@@ -121,6 +128,35 @@ export class Multion {
     return { code };
   };
 
+  private setIsRemote = async (isRemote: boolean) => {
+    try {
+      if (!this.token) {
+        throw new Error('You must log in before making API calls.');
+      }
+
+      const url = `${this.apiURL}/is_remote`;
+      const headers = { Authorization: `Bearer ${this.token['access_token']}` };
+
+      this.log('setIsRemote', `Turning MultiOn API remote to "${isRemote}"`);
+
+      const response = await axios.post(url, { value: isRemote }, { headers });
+
+      if (typeof response.data.is_remote !== 'boolean') {
+        throw response.data;
+      }
+
+      this.log('setIsRemote', `MultiOn API remote now set to "${isRemote}"`);
+
+      return response;
+    } catch (error: any) {
+      const errorMsg = error.message
+        ? `Failed to check if the API is running remotely: ${error.message}`
+        : error;
+      this.log('setIsRemote - Error', errorMsg, true);
+      throw error;
+    }
+  };
+
   /**
    * Logs in the user by initiating the OAuth2 authorization flow and obtaining an access token.
    * If the user is already logged in, this method does nothing.
@@ -169,9 +205,13 @@ export class Multion {
             const result = await oauth.getToken(tokenParams);
 
             this.token = result.token;
-            writeFileSync(this.tokenFile, JSON.stringify(this.token));
+            writeFileSync(this.tokenFilePath, JSON.stringify(this.token));
 
             this.log('login', 'Login successful!');
+
+            // Ensuring is_remote is set to false to prevent bugs
+            await this.setIsRemote(false);
+
             resolve('Login completed');
           } catch (error: any) {
             this.log('login - Error', error.message || error, true);
@@ -207,19 +247,15 @@ export class Multion {
     let attempts = 0;
 
     while (attempts < 5) {
-      this.log(
-        `post - Running POST Attempt ${attempts + 1}`,
-        `POST URL: ${url}\n\nPOST Data:\n${getStringFromObject(
-          {
-            ...data,
-          },
-          1,
-        )}`,
-      );
+      this.log(`post - Running POST Attempt ${attempts + 1}`, {
+        url,
+        data,
+      });
+
       try {
         const response = await axios.post(url, data, { headers });
         this.log(`post - Response Status: ${response.status}`, {
-          data: response.data,
+          data: response.data.response?.data || response.data,
           status: response.status,
           statusText: response.statusText,
         });
@@ -228,7 +264,7 @@ export class Multion {
           if (response.data.response.status === 'Error') {
             throw new Error(`Unknown error ocurred`);
           }
-          return response.data.response.data;
+          return response.data.response.data as SessionSuccesfulResponse;
         } else if (response.status === 401) {
           this.log('login', 'Invalid token. Refreshing...');
           await this.refreshToken();
@@ -274,8 +310,6 @@ export class Multion {
         password: this.clientSecret,
       };
 
-      niceLog(`refreshToken - current token`, this.token); // TODO: Delete this
-
       const data = {
         grant_type: 'refresh_token',
         refresh_token: this.token.refresh_token,
@@ -284,7 +318,7 @@ export class Multion {
 
       const response = await axios.post(this.tokenURL, data, { auth });
       this.token = response.data;
-      writeFileSync(this.tokenFile, JSON.stringify(this.token));
+      writeFileSync(this.tokenFilePath, JSON.stringify(this.token));
     } catch (error) {
       this.log(
         'refreshToken - Error',
@@ -299,8 +333,8 @@ export class Multion {
     return await this.post(url, data);
   };
 
-  readonly updateSession = async (tabId: string, data: SessionDataParams) => {
-    const url = `${this.apiURL}/session/${tabId}`;
+  readonly updateSession = async (sessionId: string, data: SessionDataParams) => {
+    const url = `${this.apiURL}/session/${sessionId}`;
     return await this.post(url, data);
   };
 
@@ -309,8 +343,8 @@ export class Multion {
   };
 
   readonly deleteToken = () => {
-    if (existsSync(this.tokenFile)) {
-      unlinkSync(this.tokenFile);
+    if (existsSync(this.tokenFilePath)) {
+      unlinkSync(this.tokenFilePath);
     } else {
       this.log(
         'deleteToken',
@@ -365,11 +399,15 @@ export class Multion {
     height?: number,
     width?: number,
   ) => {
-    const screenshot = response.screenshot;
-    const base64ImgBytes = screenshot.replace('data:image/png;base64,', '');
-    const imgBuffer = Buffer.from(base64ImgBytes, 'base64');
-
     try {
+      const screenshot = response.screenshot;
+
+      if (!screenshot) {
+        throw new Error('No screenshot found in response');
+      }
+
+      const base64ImgBytes = screenshot.replace('data:image/png;base64,', '');
+      const imgBuffer = Buffer.from(base64ImgBytes, 'base64');
       let resizedBuffer;
       if (height && width) {
         resizedBuffer = await sharp(imgBuffer)

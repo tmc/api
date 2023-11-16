@@ -12,9 +12,11 @@ const main = async () => {
   });
   niceLog('Test - Response 1', response);
 
-  let tabId = response.tabId;
+  if (!response?.session_id) throw new Error('No session id');
 
-  response = await multion.updateSession(tabId, {
+  let sessionID = response.session_id;
+
+  response = await multion.updateSession(sessionID, {
     input: 'what is the weather today',
     url: 'https://www.google.com',
   });
@@ -24,7 +26,7 @@ const main = async () => {
   // Generate HTML and open it in the browser
   await generateHtmlAndOpen(screenshotDataUrl);
 
-  await multion.closeSession(tabId);
+  await multion.closeSession(sessionID);
 };
 
 main();
