@@ -59,6 +59,7 @@ export class Multion {
 
   constructor(params: MultionParams = {}) {
     const { tokenFile } = params;
+    this.secretsFilePath = path.join(__dirname, 'secrets.json');
     const secrets = this.getSecrets();
     this.clientId = secrets.MULTION_CLIENT_ID;
     this.clientSecret = secrets.MULTION_CLIENT_SECRET;
